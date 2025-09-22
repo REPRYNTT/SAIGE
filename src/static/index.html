@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAIGE Control Panel: Self-Autonomous AI</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>SAIGE Edge AI Device Control Panel</h1>
+        <div class="tabs">
+            <button class="tab-button active" onclick="openTab('chat')">Chat</button>
+            <button class="tab-button" onclick="openTab('logs')">Logs & Blockchain</button>
+            <button class="tab-button" onclick="openTab('commands')">Commands & Evolution</button>
+        </div>
+        <div id="chat" class="tab-content active">
+            <div class="chat-messages" id="chatMessages"></div>
+            <div class="chat-input-container">
+                <textarea id="userInput" placeholder="Type message or 'evolve [task]'..." rows="1"></textarea>
+                <button id="sendButton">Send</button>
+            </div>
+        </div>
+        <div id="logs" class="tab-content">
+            <pre id="chatLogs"></pre>
+            <pre id="inferenceLogs"></pre>
+            <button onclick="verifyBlockchain()">Verify Latest Block</button>
+        </div>
+        <div id="commands" class="tab-content">
+            <input id="cmdInput" placeholder="e.g., evolve, status, update">
+            <button onclick="runCommand()">Execute</button>
+            <pre id="cmdOutput"></pre>
+        </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
