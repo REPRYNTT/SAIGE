@@ -1,27 +1,27 @@
-import os
-import json
-import hashlib
-from flask import Flask, request, jsonify, send_from_directory
 import requests
-from ecdsa import SigningKey, SECP256k1, VerifyingKey
-from subprocess import Popen, PIPE, call  # For safe command execution
-import pysbd  # Sentence splitter
-import time  # For delay
+from flask import Flask, request, jsonify, render_template, Response
+import json
 import threading
 import queue
-from collections import deque
+import time
+import os
+import subprocess
+from subprocess import call, Popen, PIPE
+from ecdsa import SigningKey, NIST256p
+import hashlib
+import base64
 
-app = Flask(__name__, static_folder='static')
+app = Flask(__name__)
 
-# Config
+# Configuration
 LLAMA_API = 'http://localhost:8080/v1/chat/completions'
-LOG_FILE = 'logs/saige_chat.log'  # Local logs directory - no root required
-BLOCKCHAIN_KEY_FILE = os.path.expanduser('~/.saige_signing_key.pem')  # Persistent key
-INFERENCE_LOG = 'logs/saige_inference.log'  # Local logs directory - no root required
+BLOCKCHAIN_KEY_FILE = '/home/reprynt/.ssh/saige_blockchain_key.pem'
+BLOCKCHAIN_LOG_FILE = '/home/reprynt/saige_blockchain.json'
 
-# Load or generate ECDSA key for blockchain-style signing
+# Generate or load blockchain key
 if not os.path.exists(BLOCKCHAIN_KEY_FILE):
-    signing_key = SigningKey.generate(curve=SECP256k1)
+    os.makedirs(os.path.dirname(BLOCKCHAIN_KEY_FILE), exist_ok=True)
+    signing_key = SigningKey.generate(curve=NIST256p)
     with open(BLOCKCHAIN_KEY_FILE, 'wb') as f:
         f.write(signing_key.to_pem())
 else:
@@ -29,24 +29,23 @@ else:
         signing_key = SigningKey.from_pem(f.read())
 verifying_key = signing_key.verifying_key
 
-# TTS Worker Class for Non-blocking Audio - Piper TTS (ARM64 Fixed)
+# TTS Worker Class - Piper TTS with Natural Speech Flow
 class TTSWorker:
     def __init__(self):
         self.tts_queue = queue.Queue()
         self.worker_thread = threading.Thread(target=self._process_tts, daemon=True)
         self.worker_thread.start()
-        
-        # Piper TTS configuration (ARM64/Jetson optimized)
-        self.piper_model = os.path.expanduser("~/SAIGE/models/piper/en_US-lessac-medium.onnx")
+
+        # Piper TTS configuration
+        self.piper_model = os.path.expanduser("~/SAIGE/models/piper/en_US-ryan-high.onnx")
         self.use_piper = os.path.exists(self.piper_model)
-        
+
         if self.use_piper:
             print(f"[TTS] Using Piper TTS model: {self.piper_model}")
         else:
             print(f"[TTS] Piper model not found, falling back to Mimic3")
-        
+
     def _process_tts(self):
-        """Background thread that processes TTS queue without blocking"""
         while True:
             try:
                 sentence = self.tts_queue.get(timeout=1)
@@ -57,66 +56,57 @@ class TTSWorker:
                 continue
             except Exception as e:
                 print(f"TTS Error: {e}")
-                
+
     def _synthesize_and_play(self, text):
-        """Synthesize and play audio - Piper TTS optimized for ARM64"""
         try:
             thread_id = threading.current_thread().ident
-            temp_audio = f'/tmp/saige_tts_{thread_id}.wav'
-            
+            temp_audio = f"/tmp/saige_tts_{thread_id}.wav"
+
             if self.use_piper:
-                # Use Piper TTS (faster, MIT licensed, ARM64 compatible)
-                with open(os.devnull, 'w') as devnull:
-                    # Direct piper command with proper error handling
+                with open(os.devnull, "w") as devnull:
                     process = Popen([
-                        'piper',
-                        '--model', self.piper_model,
-                        '--output_file', temp_audio
+                        "piper",
+                        "--model", self.piper_model,
+                        "--output_file", temp_audio
                     ], stdin=PIPE, stdout=devnull, stderr=devnull, text=True)
-                    
-                    # Send text to piper stdin
+
                     process.communicate(input=text)
-                    
+
                     if process.returncode == 0 and os.path.exists(temp_audio):
-                        # Play audio directly (no stereo conversion needed)
-                        call(['aplay', '-D', 'hw:0,0', temp_audio], stderr=devnull)
-                    
+                        temp_stereo = f"/tmp/saige_tts_stereo_{thread_id}.wav"
+                        call(["sox", temp_audio, "-c", "2", temp_stereo], stderr=devnull)
+                        call(["aplay", "-D", "hw:0,0", temp_stereo], stderr=devnull)
+                        
+                        try:
+                            os.remove(temp_stereo)
+                            os.remove(temp_audio)
+                        except:
+                            pass
             else:
-                # Fallback to Mimic3 (your current implementation)
-                temp_mono = f'/tmp/tts_mono_{thread_id}.wav'
-                temp_stereo = f'/tmp/tts_stereo_{thread_id}.wav'
-                
-                with open(os.devnull, 'w') as devnull:
-                    call(['mimic3', '--voice', 'en_US/cmu-arctic_low', 
-                         '--length-scale', '0.9', text], 
-                         stdout=open(temp_mono, 'wb'), stderr=devnull)
-                    
-                    call(['sox', temp_mono, '-c', '2', temp_stereo], stderr=devnull)
-                    call(['aplay', '-D', 'hw:0,0', temp_stereo], stderr=devnull)
-                    
+                # Fallback to Mimic3
+                temp_mono = f"/tmp/tts_mono_{thread_id}.wav"
+                temp_stereo = f"/tmp/tts_stereo_{thread_id}.wav"
+
+                with open(os.devnull, "w") as devnull:
+                    call(["mimic3", "--voice", "en_US/cmu-arctic_low",
+                         "--length-scale", "0.9", text],
+                         stdout=open(temp_mono, "wb"), stderr=devnull)
+
+                    call(["sox", temp_mono, "-c", "2", temp_stereo], stderr=devnull)
+                    call(["aplay", "-D", "hw:0,0", temp_stereo], stderr=devnull)
+
                     try:
                         os.remove(temp_mono)
                         os.remove(temp_stereo)
                     except:
                         pass
-            
-            # Cleanup
-            try:
-                os.remove(temp_audio)
-            except:
-                pass
-                
+
         except Exception as e:
             print(f"TTS synthesis error: {e}")
-    
+
     def add_text(self, text):
-        """Add text to TTS queue - optimized for word-level streaming"""
         if text.strip():
-            # For word-for-word streaming, reduce chunk size even more
-            clean_text = text.strip()
-            # Keep some punctuation for natural pauses (Piper handles this better)
-            clean_text = clean_text.replace('  ', ' ')  # Just clean double spaces
-            
+            clean_text = text.strip().replace("  ", " ")
             if clean_text:
                 self.tts_queue.put(clean_text)
 
@@ -125,44 +115,51 @@ tts_worker = TTSWorker()
 
 def log_with_signature(message, response):
     log_entry = f"User: {message}\nAssistant: {response}\n"
-    hash_digest = hashlib.sha256(log_entry.encode()).digest()
-    signature = signing_key.sign(hash_digest).hex()
-    with open(LOG_FILE, 'a') as f:
-        f.write(f"{log_entry}Signature: {signature}\nBlock Hash: {hashlib.sha256(hash_digest + bytes.fromhex(signature)).hexdigest()}\n---\n")
-    return signature
+    message_hash = hashlib.sha256(log_entry.encode()).digest()
+    signature = signing_key.sign(message_hash)
+    
+    blockchain_entry = {
+        'timestamp': time.time(),
+        'message': message,
+        'response': response,
+        'hash': base64.b64encode(message_hash).decode(),
+        'signature': base64.b64encode(signature).decode()
+    }
+    
+    with open(BLOCKCHAIN_LOG_FILE, 'a') as f:
+        f.write(json.dumps(blockchain_entry) + '\n')
 
 @app.route('/')
 def index():
-    return send_from_directory(app.static_folder, 'index.html')
+    return render_template('index.html')
 
-@app.route('/api/chat', methods=['POST'])
+@app.route('/chat', methods=['POST'])
 def chat():
-    data = request.json
-    messages = data.get('messages', [])
-    # Proxy to llama-server with streaming
-    try:
-        resp = requests.post(LLAMA_API, json={
-            'messages': messages,
-            'model': 'phi-3-mini',
-            'stream': True,
-            'max_tokens': 512,
-            'temperature': 0.85
-        }, stream=True)
-        resp.raise_for_status()
-
-        def generate():
+    user_message = request.json.get('message', '')
+    
+    def generate():
+        try:
+            # Connect to your Phi-3 model via llama-server
+            resp = requests.post(LLAMA_API, json={
+                'messages': [{'role': 'user', 'content': user_message}],
+                'model': 'phi-3-mini',
+                'stream': True,
+                'max_tokens': 512,
+                'temperature': 0.85
+            }, stream=True)
+            resp.raise_for_status()
+            
+            sentence_buffer = ''
             response_text = ''
-            tts_buffer = ''
-            word_count = 0
             
             for chunk in resp.iter_lines():
                 if chunk:
                     line = chunk.decode('utf-8').strip()
                     if line.startswith('data: '):
                         if line[6:].strip() == '[DONE]':
-                            # Send any remaining buffer to TTS
-                            if tts_buffer.strip():
-                                tts_worker.add_text(tts_buffer)
+                            # Handle final buffer
+                            if sentence_buffer.strip():
+                                tts_worker.add_text(sentence_buffer.strip())
                             break
                             
                         try:
@@ -170,73 +167,83 @@ def chat():
                             if 'choices' in data and data['choices']:
                                 content = data['choices'][0].get('delta', {}).get('content', '')
                                 if content:
+                                    sentence_buffer += content
                                     response_text += content
-                                    tts_buffer += content
                                     
-                                    # Count words
-                                    if ' ' in content:
-                                        word_count += content.count(' ')
+                                    # Stream to UI immediately
+                                    yield "data: " + json.dumps({'content': content}) + "\n\n"
                                     
-                                    # Send to TTS after fewer words with Piper (faster)
-                                    if word_count >= 2:  # Ultra-fast - just 2 words with Piper!
-                                        tts_worker.add_text(tts_buffer.strip())
-                                        tts_buffer = ''  # Clear buffer
-                                        word_count = 0
+                                    # Send complete sentences to TTS for natural flow
+                                    is_sentence_end = content.rstrip().endswith(('.', '!', '?'))
+                                    is_long_phrase = len(sentence_buffer.split()) >= 12
                                     
-                                    # Yield content immediately to UI
-                                    yield content
+                                    if is_sentence_end or is_long_phrase:
+                                        tts_worker.add_text(sentence_buffer.strip())
+                                        sentence_buffer = ''
+                                    
+                                    time.sleep(0.05)
                         except json.JSONDecodeError:
                             continue
             
-            # Log after full response
-            user_msg = messages[-1]['content'] if messages else ''
-            log_with_signature(user_msg, response_text)
+            # Log to blockchain
+            log_with_signature(user_message, response_text)
+            yield "data: " + json.dumps({'done': True}) + "\n\n"
+            
+        except Exception as e:
+            error_msg = f"Error connecting to Phi-3 model: {e}. Make sure llama-server is running on port 8080."
+            yield "data: " + json.dumps({'content': error_msg}) + "\n\n"
+            yield "data: " + json.dumps({'done': True}) + "\n\n"
+    
+    return Response(generate(), mimetype='text/plain')
 
-        return app.response_class(generate(), mimetype='text/event-stream')
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/logs', methods=['GET'])
+@app.route('/logs')
 def get_logs():
-    try:
-        with open(LOG_FILE, 'r') as f:
-            logs = f.read()
-        with open(INFERENCE_LOG, 'r') as f:
-            inf_logs = f.read()
-        return jsonify({'chat_logs': logs, 'inference_logs': inf_logs})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    logs = []
+    if os.path.exists(BLOCKCHAIN_LOG_FILE):
+        with open(BLOCKCHAIN_LOG_FILE, 'r') as f:
+            for line in f:
+                if line.strip():
+                    logs.append(json.loads(line))
+    return jsonify(logs)
 
-@app.route('/api/verify_blockchain', methods=['POST'])
+@app.route('/verify')
 def verify_blockchain():
-    data = request.json
-    log_entry = data.get('log_entry', '')
-    signature = data.get('signature', '')
-    try:
-        hash_digest = hashlib.sha256(log_entry.encode()).digest()
-        valid = verifying_key.verify(bytes.fromhex(signature), hash_digest)
-        return jsonify({'valid': valid})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/command', methods=['POST'])
-def run_command():
-    data = request.json
-    cmd = data.get('command', '')
-    # Restrict to safe SAIGE commands (extend as needed for autonomy)
-    allowed_cmds = {
-        'evolve': 'cd ~/llama.cpp/build/bin && ./llama-evolve-binary --task "optimize for robotic autonomy"',  # Assume you build this C++ binary
-        'status': 'jtop --json',
-        'update': 'git -C ~/SAIGE pull'
-    }
-    if cmd in allowed_cmds:
-        proc = Popen(allowed_cmds[cmd], shell=True, stdout=PIPE, stderr=PIPE)
-        out, err = proc.communicate()
-        return jsonify({'output': out.decode(), 'error': err.decode()})
-    return jsonify({'error': 'Unauthorized command'}), 403
+    if not os.path.exists(BLOCKCHAIN_LOG_FILE):
+        return jsonify({'status': 'No blockchain file found'})
+    
+    verified_count = 0
+    total_count = 0
+    
+    with open(BLOCKCHAIN_LOG_FILE, 'r') as f:
+        for line in f:
+            if line.strip():
+                total_count += 1
+                try:
+                    entry = json.loads(line)
+                    log_entry = f"User: {entry['message']}\nAssistant: {entry['response']}\n"
+                    message_hash = hashlib.sha256(log_entry.encode()).digest()
+                    
+                    expected_hash = base64.b64decode(entry['hash'])
+                    signature = base64.b64decode(entry['signature'])
+                    
+                    if message_hash == expected_hash and verifying_key.verify(signature, message_hash):
+                        verified_count += 1
+                except:
+                    pass
+    
+    return jsonify({
+        'total_entries': total_count,
+        'verified_entries': verified_count,
+        'integrity': f"{verified_count}/{total_count} verified"
+    })
 
 if __name__ == '__main__':
-    # Ensure logs directory exists
-    os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
-    os.makedirs(os.path.dirname(INFERENCE_LOG), exist_ok=True)  # Create both log dirs
-    app.run(host='0.0.0.0', port=5000, debug=False)  # Access from laptop at http://10.0.0.19:5000
+    print("=" * 60)
+    print("🚀 SAIGE - Self-Evolving AI with Real Phi-3 Integration")
+    print("=" * 60)
+    print(f"✅ AI Model: Phi-3 Mini via llama-server (localhost:8080)")
+    print(f"✅ TTS Engine: {'Piper (MIT Licensed)' if tts_worker.use_piper else 'Mimic3 (Fallback)'}")
+    print(f"✅ Audio Device: hw:0,0 (USB Audio)")
+    print(f"✅ Speech Flow: Natural sentence-based streaming")
+    print("=" * 60)
+    app.run(host='0.0.0.0', port=5000, debug=False)
