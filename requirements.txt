@@ -14,3 +14,6 @@ tinygrad==0.11.0
 tqdm==4.67.1
 typing_extensions==4.15.0
 urllib3==2.5.0
+# TTS Dependencies (MIT Licensed - Commercial Safe)
+piper-tts>=1.2.0
+onnxruntime>=1.15.1  # ARM64 compatible version
