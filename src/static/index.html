@@ -3,38 +3,217 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SAIGE Control Panel: Self-Autonomous AI</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css">
-    <link rel="stylesheet" href="styles.css">
+    <title>SAIGE - Self-Evolving AI</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(45deg, #2196F3, #21CBF3);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+        .chat-container {
+            height: 400px;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        .message {
+            margin: 10px 0;
+            padding: 12px 16px;
+            border-radius: 20px;
+            max-width: 70%;
+            word-wrap: break-word;
+        }
+        .user-message {
+            background: #007bff;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+        .ai-message {
+            background: #e9ecef;
+            color: #333;
+            margin-right: auto;
+        }
+        .input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #eee;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+        #messageInput {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #ddd;
+            border-radius: 25px;
+            font-size: 16px;
+            outline: none;
+        }
+        #messageInput:focus {
+            border-color: #007bff;
+        }
+        #sendButton {
+            padding: 12px 24px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        #sendButton:hover {
+            background: #0056b3;
+        }
+        .tts-status {
+            text-align: center;
+            padding: 10px;
+            background: #d4edda;
+            color: #155724;
+            font-weight: bold;
+        }
+        .typing-indicator {
+            display: none;
+            padding: 10px;
+            font-style: italic;
+            color: #666;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
-        <h1>SAIGE Edge AI Device Control Panel</h1>
-        <div class="tabs">
-            <button class="tab-button active" onclick="openTab('chat')">Chat</button>
-            <button class="tab-button" onclick="openTab('logs')">Logs & Blockchain</button>
-            <button class="tab-button" onclick="openTab('commands')">Commands & Evolution</button>
+        <div class="header">
+            <h1>🚀 SAIGE</h1>
+            <p>Self-Evolving AI with Ultra-Fast TTS • Natural Speech Flow • Real Phi-3</p>
         </div>
-        <div id="chat" class="tab-content active">
-            <div class="chat-messages" id="chatMessages"></div>
-            <div class="chat-input-container">
-                <textarea id="userInput" placeholder="Type message or 'evolve [task]'..." rows="1"></textarea>
+        
+        <div class="tts-status">
+            🎵 Piper TTS Active • MIT Licensed • ARM64 Optimized
+        </div>
+        
+        <div class="chat-container" id="chatContainer">
+            <div class="message ai-message">
+                👋 Hello! I'm SAIGE with ultra-fast Piper TTS and real Phi-3 AI. Ask me anything and listen to my natural speech!
+            </div>
+        </div>
+        
+        <div class="typing-indicator" id="typingIndicator">
+            SAIGE is thinking...
+        </div>
+        
+        <div class="input-container">
+            <div class="input-group">
+                <input type="text" id="messageInput" placeholder="Ask SAIGE anything..." autocomplete="off">
                 <button id="sendButton">Send</button>
             </div>
         </div>
-        <div id="logs" class="tab-content">
-            <pre id="chatLogs"></pre>
-            <pre id="inferenceLogs"></pre>
-            <button onclick="verifyBlockchain()">Verify Latest Block</button>
-        </div>
-        <div id="commands" class="tab-content">
-            <input id="cmdInput" placeholder="e.g., evolve, status, update">
-            <button onclick="runCommand()">Execute</button>
-            <pre id="cmdOutput"></pre>
-        </div>
     </div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
-    <script src="app.js"></script>
+
+    <script>
+        const chatContainer = document.getElementById('chatContainer');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const typingIndicator = document.getElementById('typingIndicator');
+
+        function addMessage(text, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'ai-message'}`;
+            messageDiv.textContent = text;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            addMessage(message, true);
+            messageInput.value = '';
+            
+            typingIndicator.style.display = 'block';
+            
+            // Stream response from SAIGE
+            fetch('/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ message: message })
+            })
+            .then(response => {
+                const reader = response.body.getReader();
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message ai-message';
+                chatContainer.appendChild(messageDiv);
+                
+                typingIndicator.style.display = 'none';
+                
+                function readChunk() {
+                    return reader.read().then(({ done, value }) => {
+                        if (done) return;
+                        
+                        const chunk = new TextDecoder().decode(value);
+                        const lines = chunk.split('\n');
+                        
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(line.slice(6));
+                                    if (data.content) {
+                                        messageDiv.textContent += data.content;
+                                        chatContainer.scrollTop = chatContainer.scrollHeight;
+                                    }
+                                } catch (e) {}
+                            }
+                        }
+                        
+                        return readChunk();
+                    });
+                }
+                
+                return readChunk();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                typingIndicator.style.display = 'none';
+            });
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Focus input on load
+        messageInput.focus();
+    </script>
 </body>
 </html>
