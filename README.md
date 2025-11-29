@@ -1,4 +1,4 @@
-# SAIGE — Decentralized Edge AI Framework  
+# S.A.I.G.E — Decentralized Edge AI Framework  
 **Run a fully local, self-contained LLM on a $150 Jetson — no cloud, no account, no phone-home**
 
 ```
