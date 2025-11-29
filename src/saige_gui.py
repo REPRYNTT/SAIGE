@@ -15,8 +15,8 @@ app = Flask(__name__)
 
 # Configuration
 LLAMA_API = 'http://localhost:8080/v1/chat/completions'
-BLOCKCHAIN_KEY_FILE = '/home/reprynt/.ssh/saige_blockchain_key.pem'
-BLOCKCHAIN_LOG_FILE = '/home/reprynt/saige_blockchain.json'
+BLOCKCHAIN_KEY_FILE = '/home/input_your_info_here/.ssh/saige_blockchain_key.pem'
+BLOCKCHAIN_LOG_FILE = '/home/input_your_info_here/saige_blockchain.json'
 
 # Generate or load blockchain key
 if not os.path.exists(BLOCKCHAIN_KEY_FILE):
