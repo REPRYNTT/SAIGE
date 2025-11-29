@@ -15,10 +15,9 @@ That’s it. You now have a private, offline, voice-capable AI running on your o
 | Feature                         | File / Script                     | Status |
 |---------------------------------|-----------------------------------|--------|
 | Phi-3 Mini 4k (uncensored) download & setup | `download_phi3.py`               | Works on Jetson & x86 |
-| Smooth real-time TTS on Jetson   | `fix_piper_jetson.sh` + Piper fixes | ARM-optimized |
+|  TTS on Jetson   | `fix_piper_jetson.sh` + Piper fixes | ARM-optimized |
 | Web GUI (chat + voice)           | `saige_gui.py` + `static/`        | Works out of the box |
 | Watchdog-protected inference     | `llama-watchdog.cpp` (compiled)   | Prevents hangs |
-| ROS2 / robotics able       | with any local LLM  | Future-proof |
 | Zero telemetry, zero cloud      | Fully offline                     | Privacy by design |
 
 ### Quick Start (Jetson Orin Nano / AGX)
